@@ -15,7 +15,7 @@ class SingletonMeta(type):
 
 
 class Database(metaclass=SingletonMeta):
-
+    
     def __init__(self):
         self.tables = {}
 
@@ -41,17 +41,28 @@ class Database(metaclass=SingletonMeta):
     def select(self, tableName, attr=None, value=None, start=0, end=math.inf):
         """
         Выполняет выборку из таблицы с возможностью фильтрации по атрибуту.
+        UPD: если в качестве таблицы передано имя - выполняется поиск в БД
+        иначе берётся переданная таблица
+        UPD2: теперь таблицы не обладают методом select, он принадлежит
+        только БД
         """
-        table = self.isTableExist(tableName)
+        # Если переданы имена таблиц, загружаем их данные
+        if isinstance(tableName, str):
+            table = self.isTableExist(tableName).data
+        else:
+            table = tableName
+        
+        # Фильтруем записи по диапазону 'id'
+        selectedRecords = [
+            record for record in table 
+            if start <= int(record.get('id', math.inf)) <= end
+        ]
 
+        # Если задана фильтрация по атрибуту
         if attr and value is not None:
-            # Фильтрация по атрибуту
-            return [
-                record for record in table.select(start=start, end=end)
-                if record.get(attr) == value
-            ]
-        # Выборка по диапазону
-        return table.select(start=start, end=end)
+            selectedRecords = [record for record in selectedRecords if record.get(attr) == value]
+
+        return selectedRecords
     
     
     def load(self, tableName):
@@ -61,15 +72,23 @@ class Database(metaclass=SingletonMeta):
 
     """
     объединение выполняется для левой таблицы по id правой таблицы
+    UPD: если в качестве таблицы передано имя - выполняется поиск в БД
+    иначе берётся переданная таблица
     """
-    def join(self, tableLeftName, tableRightName, joinAttr):
-        tableLeft = self.isTableExist(tableLeftName)
-        tableRight = self.isTableExist(tableRightName)
+    def join(self, tableLeft, tableRight, joinAttr):
         
-        leftTableRecords = tableLeft.data
-        rightTableRecords = tableRight.data
+        # Если переданы имена таблиц, загружаем их данные
+        if isinstance(tableLeft, str):
+            leftTableRecords = self.isTableExist(tableLeft).data
+        else:
+            leftTableRecords = tableLeft
+            
+        if isinstance(tableRight, str):
+            rightTableRecords = self.isTableExist(tableRight).data
+        else:
+            rightTableRecords = tableRight
+        
         mergedTable = []
-        
         for leftRecord in leftTableRecords:
             for rightRecord in rightTableRecords:
                 if leftRecord[joinAttr] == rightRecord['id']:
@@ -79,6 +98,39 @@ class Database(metaclass=SingletonMeta):
                     mergedTable.append(mergedRecord)
                     break
         return mergedTable
+    
+    
+    def aggregate(self, aggrMethod, attr, table):
+        if not table:
+            raise ValueError("The table is empty.")
+    
+        # Проверяем, что указанный атрибут существует в записях
+        if not all(attr in entry for entry in table):
+            raise ValueError(f"Attribute {attr} not found in table.")
+        
+        values = [entry[attr] for entry in table]
+        
+        match aggrMethod:
+            
+            case 'avg':
+                try:
+                    numeric_value = [float(value) for value in values]
+                except ValueError:
+                    raise ValueError("Can't aggregate non-numeric value(-s) with average method.")
+                return f"Average {attr}: {float(sum(numeric_value) / len(numeric_value))}."
+            
+            case 'max':
+                return f"Maximum {attr}: {max(values)}."
+            
+            case 'min':
+                return f"Minimum {attr}: {min(values)}."
+            
+            case 'count':
+                return f"Count {attr}: {len(values)}."
+            
+            case _:
+                raise ValueError(f"Can't find {aggrMethod} method.")
+        
 
 
 class Table(ABC): #pragma: no cover
@@ -87,11 +139,6 @@ class Table(ABC): #pragma: no cover
     @abstractmethod
     def insert(self, data): 
         pass 
-
-
-    @abstractmethod
-    def select(self, *args): 
-        pass
     
     
     @abstractmethod
@@ -100,13 +147,16 @@ class Table(ABC): #pragma: no cover
 
 
 class BaseTable(Table):
+    
     ATTRS = ()
     FILE_PATH = ''
+    
     
     def __init__(self):
         self.data = []
         self.keys = set()
         self.load()
+
 
     def insert(self, data):
         entry = dict(zip(self.ATTRS, data.split()))
@@ -115,22 +165,17 @@ class BaseTable(Table):
             raise ValueError(
                 f"Entry with keys {entryKeys} already exists."
             )
-
         self.data.append(entry)
         self.keys.add(entryKeys)
         self.save()
 
-    def select(self, start, end):
-        """
-        Выбирает данные в указанном диапазоне по 'id'.
-        """
-        return [entry for entry in self.data if start <= int(entry['id']) <= end]
 
     def save(self):
         with open(self.FILE_PATH, 'w', newline='') as f:
             writer = csv.DictWriter(f, fieldnames=self.ATTRS)
             writer.writeheader()
             writer.writerows(self.data)
+
 
     def load(self):
         if os.path.exists(self.FILE_PATH):
@@ -147,14 +192,15 @@ class BaseTable(Table):
             self.data = []
             self.keys = set()
 
+
     def get_entry_keys(self, entry):
         """
         Метод для определения уникального ключа записи.
         Должен быть переопределен в подклассах.
         """
 
+
 class EmployeeTable(BaseTable):
-    
     ATTRS = ('id', 'name', 'age', 'salary', 'department_id')
     FILE_PATH = 'employee_table.csv'
 
@@ -166,6 +212,15 @@ class EmployeeTable(BaseTable):
 class DepartmentTable(BaseTable):
     ATTRS = ('id', 'department_name')
     FILE_PATH = 'department_table.csv'
+
+    def get_entry_keys(self, entry):
+        # Уникальный ключ - только id
+        return int(entry['id'])
+    
+    
+class SalesTable(BaseTable):
+    ATTRS = ('id', 'product_name', 'price', 'seller_id')
+    FILE_PATH = 'goods_table.csv'
 
     def get_entry_keys(self, entry):
         # Уникальный ключ - только id
