@@ -1,0 +1,25 @@
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v2.3.0
+    hooks:
+    -   id: check-yaml
+    -   id: end-of-file-fixer
+    -   id: trailing-whitespace
+    -   id: name-tests-test
+    -   id: check-docstring-first
+-   repo: https://github.com/PyCQA/flake8
+    rev: 7.0.0
+    hooks:
+    -   id: flake8
+-   repo: https://github.com/psf/black-pre-commit-mirror
+    rev: 24.8.0
+    hooks:
+    -   id: black
+-   repo: local
+    hooks:
+    -   id: pytest
+        name: pytest
+        entry: bash -c "cd lr_3/tiny-database && poetry run pytest --cov-fail-under=100"
+        language: system
+        pass_filenames: false
+        always_run: true
