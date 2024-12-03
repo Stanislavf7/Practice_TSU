@@ -1,7 +1,7 @@
 from database.database import Database, EmployeeTable, DepartmentTable
 
 
-if __name__ == "__main__" :
+if __name__ == "__main__":
     db = Database()
 
     # Создание таблиц в базе данных
@@ -13,5 +13,4 @@ if __name__ == "__main__" :
     db.insert("employees", "2 Bob 29 100000 1")
     db.insert("departments", "Engineering")
 
-    print(db.select('employees', 1, 2))
-
+    print(db.select("employees", 1, 2))
